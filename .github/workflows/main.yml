@@ -1,95 +1,31 @@
-trigger:
-- master
+name: Build and Deploy Blazor Web App
 
-pool:
-  vmImage: 'windows-latest'
+on:
+  push:
+    branches:
+      - master
 
-variables:
-  BuildConfiguration: release
-  BuildPlatform: 'Any CPU'
-  LocalPublishWebAppFolder: WebApp
-  LocalPublishDbMigratorFolder: DbMigrator
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
 
-steps:
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-- powershell: |      
-      Write-Host "System.DefinitionId (9)": $(System.DefinitionId)
-      Write-Host "System.DefinitionName": $(System.DefinitionName)
-      Write-Host "Project GUID": $(System.TeamProjectId)
-      Write-Host "BuildId is:  $(Build.BuildId)" 
-      Write-Host "$(Build.SourceBranch) value is: $(Build.SourceBranch)"
-      Write-Host "$(Build.ArtifactStagingDirectory) value is: $(Build.ArtifactStagingDirectory)"
-  displayName: Variable output
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0' # Loyihangizning .NET versiyasini kiriting
 
-- task: NuGetAuthenticate@0
-  inputs:
-    nuGetServiceConnections: 'MyGet feed'
+    - name: Restore dependencies
+      run: dotnet restore
 
-- task: NuGetToolInstaller@1
- 
-- task: NuGetCommand@2
-  displayName: Nuget restore
-  inputs:
-    restoreSolution: '$(solution)'
-    feedsToUse: 'config'
-    nugetConfigPath: 'NuGet.config'
-    externalFeedCredentials: 'MyGet feed'  
+    - name: Build project
+      run: dotnet publish -c Release -o ./publish
 
-- task: DotNetCoreCLI@2
-  displayName: Build solution
-  inputs:
-    command: build
-    arguments: --configuration $(BuildConfiguration) 
-    configuration: $(BuildConfiguration)
-  condition: succeeded()
-
-- task: DotNetCoreCLI@2
-  displayName: Run tests
-  inputs:
-    command: test
-    projects: '**/*.Tests.csproj'
-    publishTestResults: true
-    arguments: --configuration $(BuildConfiguration) --collect "Code coverage"
-    nobuild: true
-  condition: succeeded()
-
-- task: DotNetCoreCLI@2
-  displayName: Gather web app binaries for publication
-  inputs:
-    command: publish
-    publishWebProjects: false
-    projects: '**/*.Blazor.csproj'
-    modifyOutputPath: false
-    configuration: $(BuildConfiguration)
-    arguments: --configuration $(BuildConfiguration) --no-restore --no-build --output $(Build.ArtifactStagingDirectory)/$(LocalPublishWebAppFolder)
-    nobuild: true
-  # condition: succeeded()
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
-
-- task: DotNetCoreCLI@2
-  displayName: Gather migration app binaries for publication
-  inputs:
-    command: publish
-    publishWebProjects: false
-    projects: 'src\MySolution.DbMigrator.csproj'
-    configuration: $(BuildConfiguration)
-    arguments: --configuration $(BuildConfiguration) --no-restore --no-build --output $(Build.ArtifactStagingDirectory)/$(LocalPublishDbMigratorFolder)
-    nobuild: true
-  # condition: succeeded()
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
-
-- task: PublishBuildArtifacts@1
-  displayName: Upload web app publication files to artifact
-  inputs:
-    PathtoPublish: $(Build.ArtifactStagingDirectory)/$(LocalPublishWebAppFolder)
-    ArtifactName: WebApp
-  # condition: succeeded()
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
-
-- task: PublishBuildArtifacts@1
-  displayName: Upload migration app publication files to artifact
-  inputs:
-    PathtoPublish: $(Build.ArtifactStagingDirectory)
-    ArtifactName: DbMigrator
-  # condition: succeeded()
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./publish/wwwroot
