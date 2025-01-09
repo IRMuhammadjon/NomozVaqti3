@@ -1,8 +1,9 @@
 ﻿@page "/"
+@inject IJSRuntime JSRuntime
 
-<MudTable  Items="@NomozVaqtlari" Hover="true" Breakpoint="Breakpoint.None" Loading="@_loading" LoadingProgressColor="Color.Info">
-    <HeaderContent>
-    </HeaderContent>
+
+<MudText Align="Align.Center">@location</MudText>
+<MudTable Items="@NomozVaqtlari" Hover="true" Breakpoint="Breakpoint.None" Loading="@_loading" LoadingProgressColor="Color.Info">
     <RowTemplate>
         <MudTd DataLabel="Icon">
             <MudIcon Icon="@context.Icon" Color="Color.Primary" />
@@ -15,13 +16,22 @@
 @code {
     private bool _loading = true;
     private List<Nomozvaqtlari> NomozVaqtlari = new();
+    private string Latitude { get; set; } = "";
+    private string Longitude { get; set; } = "";
+    private string location { get; set; } = "";
 
     protected override async Task OnInitializedAsync()
     {
         _loading = true;
         try
         {
-            var apiResponse = await GetPrayerTimesAsync("Tashkent");
+            // Foydalanuvchi lokatsiyasini olish
+            var userLocation = await JSRuntime.InvokeAsync<GeolocationCoordinates>("getLocation");
+            Latitude = userLocation.Latitude.ToString();
+            Longitude = userLocation.Longitude.ToString();
+
+            var apiResponse = await GetPrayerTimesAsync(Latitude, Longitude);
+
             if (apiResponse != null)
             {
                 NomozVaqtlari = new List<Nomozvaqtlari>
@@ -44,17 +54,31 @@
         }
     }
 
-    private async Task<PrayerTimes?> GetPrayerTimesAsync(string city)
+    private async Task<PrayerTimes?> GetPrayerTimesAsync(string latitude, string longitude)
     {
         using var client = new HttpClient();
-        var url = $"https://api.aladhan.com/v1/timingsByAddress?address={city}";
-        var response = await client.GetAsync(url);
+        string url = $"https://api.aladhan.com/v1/timings?latitude={latitude}&longitude={longitude}&method=2";
 
-        if (response.IsSuccessStatusCode)
+        try
         {
-            var json = await response.Content.ReadAsStringAsync();
-            var result = JsonSerializer.Deserialize<ApiResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            return result?.Data?.Timings;
+            var response = await client.GetAsync(url);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<ApiResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (result?.Data?.Meta?.Timezone != null)
+                {
+                    location = result.Data.Meta.Timezone; 
+                }
+
+                return result?.Data?.Timings;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching API data: {ex.Message}");
         }
 
         return null;
@@ -68,6 +92,12 @@
     private class Data
     {
         public PrayerTimes? Timings { get; set; }
+        public Meta? Meta { get; set; }
+    }
+
+    private class Meta
+    {
+        public string Timezone { get; set; } = "";
     }
 
     private class PrayerTimes
@@ -81,8 +111,14 @@
 
     private class Nomozvaqtlari
     {
-        public string Name { get; set; }
-        public string Time { get; set; }
-        public string Icon { get; set; }
+        public string Name { get; set; } = "";
+        public string Time { get; set; } = "";
+        public string Icon { get; set; } = "";
+    }
+
+    private class GeolocationCoordinates
+    {
+        public double Latitude { get; set; }
+        public double Longitude { get; set; }
     }
 }
